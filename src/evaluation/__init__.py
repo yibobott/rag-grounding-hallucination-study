@@ -3,6 +3,7 @@ Evaluation — unified interface combining metrics and citation modules.
 """
 
 from src.evaluation.metrics import (
+    parse_structured_output,
     normalize_answer,
     exact_match,
     token_f1,
@@ -39,16 +40,25 @@ def compute_all_metrics(
     """
     Compute all applicable metrics for a single example.
 
+    The raw prediction is parsed into structured components:
+    - "Answer: ..." → used for EM / F1 / Semantic Match (answer accuracy)
+    - Full raw output → used for citation grounding / hallucination / FActScore
+
     Args:
+        prediction: raw LLM output (may contain Answer:/Citations: format).
         question: the original question (used for hallucination/faithfulness).
-        model_key: required for LLM-based metrics (hallucination, faithfulness, FActScore).
-        compute_hallucination: if True, run hallucination_check + faithfulness_score (1+1 LLM calls).
-        compute_factscore: if True, run atomic FActScore (N+1 LLM calls, use for subset only).
+        model_key: required for LLM-based metrics.
+        compute_hallucination: if True, run hallucination_check + faithfulness_score.
+        compute_factscore: if True, run atomic FActScore (subset only).
     """
+    parsed = parse_structured_output(prediction)
+    answer = parsed["answer"]
+
+    # ---- Answer accuracy (use extracted short answer) ---- #
     metrics: dict = {
-        "em": exact_match(prediction, gold_answer),
-        "token_f1": token_f1(prediction, gold_answer),
-        "semantic_match": semantic_match(prediction, gold_answer),
+        "em": exact_match(answer, gold_answer),
+        "token_f1": token_f1(answer, gold_answer),
+        "semantic_match": semantic_match(answer, gold_answer),
     }
 
     if retrieved_titles is not None and gold_titles is not None:
@@ -56,13 +66,14 @@ def compute_all_metrics(
             retrieved_titles, gold_titles, k=5
         )
 
+    # ---- Citation grounding (use full raw output) ---- #
     if docs is not None and gold_titles is not None:
         cg = citation_grounding_rate(prediction, docs, gold_titles)
         metrics["citation_grounding_rate"] = cg["grounding_rate"]
         metrics["num_citations"] = cg["num_citations"]
         metrics["num_grounded"] = cg["num_grounded"]
 
-    # ---- Lightweight LLM-based hallucination metrics (full-scale) ---- #
+    # ---- Lightweight LLM-based hallucination metrics (full raw output) ---- #
     if compute_hallucination and docs is not None and model_key is not None:
         metrics["has_hallucination"] = hallucination_check(
             prediction, docs, model_key, question=question,
@@ -71,7 +82,7 @@ def compute_all_metrics(
             prediction, docs, model_key, question=question,
         )
 
-    # ---- Atomic FActScore (subset only — expensive) ---- #
+    # ---- Atomic FActScore (subset only, full raw output) ---- #
     if compute_factscore and docs is not None and model_key is not None:
         fs = factscore(prediction, docs, model_key)
         metrics["factscore"] = fs["factscore"]
@@ -82,6 +93,7 @@ def compute_all_metrics(
 
 
 __all__ = [
+    "parse_structured_output",
     "normalize_answer",
     "exact_match",
     "token_f1",

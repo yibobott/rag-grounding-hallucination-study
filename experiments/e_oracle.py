@@ -29,7 +29,7 @@ from src.data import load_hotpotqa, extract_oracle_docs, get_gold_titles
 from src.prompts import RAG_SYSTEM_PROMPT, build_rag_user_prompt
 from src.generation import generate
 from src.evaluation import compute_all_metrics
-from src.evaluation.metrics import aggregate_metrics
+from src.evaluation.metrics import aggregate_metrics, parse_structured_output
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +104,10 @@ def run_e_oracle(
             )
             raise SystemExit(1)
 
+    # When not resuming, clear any previous results to avoid duplicates
+    if not resume:
+        results_file.unlink(missing_ok=True)
+
     # Write current run config (after resume check)
     run_config_file.write_text(json.dumps(run_cfg, indent=2))
 
@@ -154,11 +158,13 @@ def run_e_oracle(
             )
 
             # Record
+            parsed = parse_structured_output(prediction)
             record = {
                 "id": example["id"],
                 "question": example["question"],
                 "gold_answer": example["answer"],
                 "prediction": prediction,
+                "extracted_answer": parsed["answer"],
                 "oracle_docs": [{"title": d["title"], "text": d["text"]}
                                 for d in oracle_docs],
                 "metrics": metrics,

@@ -27,9 +27,12 @@ def format_docs(docs: list[dict], start_index: int = 1) -> str:
 RAG_SYSTEM_PROMPT = (
     "You are a precise question-answering assistant. "
     "Answer the question using ONLY the information in the provided documents. "
-    "Be concise — give a short factual answer (a few words or one sentence). "
-    "Cite your sources using [Doc N] tags after the relevant part of your answer. "
-    "If the answer cannot be determined from the documents, say \"I cannot determine the answer from the provided documents.\""
+    "You MUST use the following output format:\n\n"
+    "Answer: <short factual answer, a few words or one sentence>\n"
+    "Citations: [Doc N] for each document that supports your answer\n\n"
+    "If the answer cannot be determined from the documents, write:\n"
+    "Answer: I cannot determine the answer from the provided documents.\n"
+    "Citations: none"
 )
 
 NO_RAG_SYSTEM_PROMPT = (
@@ -49,7 +52,7 @@ def build_rag_user_prompt(question: str, docs: list[dict]) -> str:
     return (
         f"Documents:\n{doc_str}\n\n"
         f"Question: {question}\n\n"
-        f"Answer concisely and cite relevant documents using [Doc N] tags."
+        f"Respond using the exact format: Answer: ... then Citations: ..."
     )
 
 

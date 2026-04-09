@@ -9,6 +9,39 @@ from collections import Counter
 import numpy as np
 
 
+# ---------------------- Structured output parsing ---------------------- #
+
+def parse_structured_output(raw: str) -> dict:
+    """
+    Parse structured LLM output into answer and citations components.
+
+    Expected format:
+        Answer: <short answer>
+        Citations: [Doc 1][Doc 2] ...
+
+    Returns:
+        {"answer": str, "citations_line": str, "raw": str}
+        If parsing fails, "answer" falls back to the full raw text
+        with [Doc N] tags stripped.
+    """
+    answer_match = re.search(
+        r"(?i)^answer\s*:\s*(.+?)(?:\n|$)", raw, re.MULTILINE,
+    )
+    citations_match = re.search(
+        r"(?i)^citations?\s*:\s*(.+?)(?:\n|$)", raw, re.MULTILINE,
+    )
+
+    if answer_match:
+        answer = answer_match.group(1).strip()
+    else:
+        # Fallback: strip [Doc N] tags from raw output
+        answer = re.sub(r"\[Doc\s*\d+\]", "", raw).strip()
+
+    citations_line = citations_match.group(1).strip() if citations_match else ""
+
+    return {"answer": answer, "citations_line": citations_line, "raw": raw}
+
+
 # ---------------------------- Text normalization ---------------------------- #
 
 def normalize_answer(s: str) -> str:

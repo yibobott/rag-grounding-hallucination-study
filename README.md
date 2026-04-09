@@ -21,27 +21,58 @@ This project systematically investigates how retrieval quality, retrieval design
 | E7 | Self-RAG variant (optional) | Self-RAG-inspired filtering + critique | HotpotQA |
 | E8 | Retrieval enhancement | Query rewriting + reranking vs. E3 | HotpotQA |
 
+## Generation Format & Evaluation Data Flow
+
+All RAG experiments prompt the LLM to return a **structured output**:
+
+```
+Answer: <short factual answer>
+Citations: [Doc N] ...
+```
+
+The raw LLM output is then split into two branches for evaluation:
+
+```
+Raw LLM output
+│
+├─ parse_structured_output()
+│   └─ Extract text after "Answer:" ──► EM / Token F1 / Semantic Match
+│
+└─ Full raw output as-is ──► Citation Grounding / Hallucination / Faithfulness / FActScore
+```
+
+**Example:**
+
+```
+Raw output:  "Answer: Greenwich Village, New York City\nCitations: [Doc 2]"
+
+  → Extracted answer:  "Greenwich Village, New York City"   ← used for EM / F1 / Semantic Match
+  → Full raw output:   (unchanged)                          ← used for grounding & hallucination metrics
+```
+
+**Fallback:** If the model does not follow the `Answer: / Citations:` format, the parser strips `[Doc N]` tags from the raw output and uses the remaining text as the answer.
+
 ## Evaluation Metrics
 
 We use a **two-tier evaluation** design to balance coverage and cost.
 
 ### Full-scale metrics (all 500 samples)
 
-| Metric | Type | Cost |
-|--------|------|------|
-| **Exact Match (EM)** | Answer accuracy | Free (local) |
-| **Token F1** | Answer accuracy | Free (local) |
-| **Semantic Match** | Answer accuracy | Free (local, sentence-transformers) |
-| **Retrieval Precision@5** | Retrieval quality | Free (local) |
-| **Citation Grounding Rate** | Evidence grounding | Free (local) |
-| **LLM Hallucination Check** | Hallucination detection (YES/NO) | 1 LLM call/sample |
-| **Faithfulness Score** | Faithfulness to documents (0–1) | 1 LLM call/sample |
+| Metric | Input | Type | Cost |
+|--------|-------|------|------|
+| **Exact Match (EM)** | Extracted answer | Answer accuracy | Free (local) |
+| **Token F1** | Extracted answer | Answer accuracy | Free (local) |
+| **Semantic Match** | Extracted answer | Answer accuracy | Free (local) |
+| **Retrieval Precision@5** | Retrieved docs | Retrieval quality | Free (local) |
+| **Citation Grounding Rate** | Full raw output | Evidence grounding | Free (local) |
+| **LLM Hallucination Check** | Full raw output | Hallucination (YES/NO) | 1 LLM call/sample |
+| **Faithfulness Score** | Full raw output | Faithfulness (0–1) | 1 LLM call/sample |
 
 ### Subset metrics (first 50 samples)
 
-| Metric | Type | Cost |
-|--------|------|------|
-| **Atomic FActScore** | Atomic-level factual precision | ~6 LLM calls/sample |
+| Metric | Input | Type | Cost |
+|--------|-------|------|------|
+| **Atomic FActScore** | Full raw output | Factual precision | ~6 LLM calls/sample |
 
 FActScore decomposes each answer into atomic claims, then verifies each claim against the documents using an LLM judge. Running on a 50-sample subset keeps cost manageable (~300 calls) while providing fine-grained hallucination analysis.
 
@@ -69,7 +100,7 @@ rag-grounding-hallucination-study/
 │   │   └── __init__.py               # BM25, Contriever, Hybrid (E1–E3)
 │   ├── evaluation/
 │   │   ├── __init__.py               # compute_all_metrics unified entry point
-│   │   ├── metrics.py                # EM, F1, Semantic Match, Precision@K
+│   │   ├── metrics.py                # Output parser, EM, F1, Semantic Match, Precision@K
 │   │   ├── citation.py               # Citation parsing + Grounding Rate
 │   │   ├── hallucination.py          # LLM hallucination check + faithfulness score
 │   │   └── factscore.py              # Atomic FActScore (LLM-based claim verification)
@@ -188,6 +219,7 @@ To add a new OpenRouter model, add an entry to `MODELS` in `config.py` with `mod
 
 ## Key Design Decisions
 
+- **Structured output + dual-branch evaluation**: RAG prompts require the LLM to output `Answer: ...` and `Citations: ...` on separate lines. The extracted short answer feeds EM/F1/Semantic Match; the full raw output feeds citation grounding, hallucination, and FActScore.
 - **Two-tier evaluation**: Lightweight hallucination metrics run on all 500 samples; expensive atomic FActScore runs on a configurable subset (default 50). This balances cost and coverage.
 - **Unified LLM interface**: All providers use OpenAI-compatible APIs, so `src/generation.py` is a single thin wrapper.
 - **OpenRouter support**: A single `OPENROUTER_API_KEY` can access all models, useful when direct API access is unavailable.
