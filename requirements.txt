@@ -1,0 +1,12 @@
+datasets
+openai
+httpx[socks]
+python-dotenv
+tqdm
+sentence-transformers
+rank-bm25
+torch
+transformers
+numpy
+pandas
+scikit-learn
