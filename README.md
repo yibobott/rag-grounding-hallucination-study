@@ -23,22 +23,32 @@ This project systematically investigates how retrieval quality, retrieval design
 
 ## Evaluation Metrics
 
-We evaluate system performance along three dimensions: answer accuracy, evidence grounding, and hal-
-lucination.
+We use a **two-tier evaluation** design to balance coverage and cost.
 
-### Automatic metrics
-- **Exact Match (EM)**, **Token F1**, **Semantic Match**: answer correctness, including exact, token-
-level, and semantic equivalence.
-- **Retrieval Precision@5**: proportion of truly relevant retrieved documents.
-- **FActScore**: atomic-level factual precision measuring hallucination.
-- **Citation Grounding Rate**: proportion of cited claims supported by retrieved evidence.
+### Full-scale metrics (all 500 samples)
+
+| Metric | Type | Cost |
+|--------|------|------|
+| **Exact Match (EM)** | Answer accuracy | Free (local) |
+| **Token F1** | Answer accuracy | Free (local) |
+| **Semantic Match** | Answer accuracy | Free (local, sentence-transformers) |
+| **Retrieval Precision@5** | Retrieval quality | Free (local) |
+| **Citation Grounding Rate** | Evidence grounding | Free (local) |
+| **LLM Hallucination Check** | Hallucination detection (YES/NO) | 1 LLM call/sample |
+| **Faithfulness Score** | Faithfulness to documents (0–1) | 1 LLM call/sample |
+
+### Subset metrics (first 50 samples)
+
+| Metric | Type | Cost |
+|--------|------|------|
+| **Atomic FActScore** | Atomic-level factual precision | ~6 LLM calls/sample |
+
+FActScore decomposes each answer into atomic claims, then verifies each claim against the documents using an LLM judge. Running on a 50-sample subset keeps cost manageable (~300 calls) while providing fine-grained hallucination analysis.
 
 ### Human evaluation
+
 - **Citation Precision / Recall**: correctness and completeness of supporting citations.
-- **Inter-annotator agreement**: Cohen’s Kappa measuring annotation consistency.
-
-All automatic metrics will be computed on the same generated outputs whenever possible, which reduces redundant runs and keeps the pipeline efficient.
-
+- **Inter-annotator agreement**: Cohen's Kappa measuring annotation consistency.
 
 ## Project Structure
 
@@ -61,7 +71,8 @@ rag-grounding-hallucination-study/
 │   │   ├── __init__.py               # compute_all_metrics unified entry point
 │   │   ├── metrics.py                # EM, F1, Semantic Match, Precision@K
 │   │   ├── citation.py               # Citation parsing + Grounding Rate
-│   │   └── factscore.py              # FActScore (LLM-based atomic verification)
+│   │   ├── hallucination.py          # LLM hallucination check + faithfulness score
+│   │   └── factscore.py              # Atomic FActScore (LLM-based claim verification)
 │   ├── prompts.py                    # Prompt templates (RAG / No-RAG / Self-RAG)
 │   └── generation.py                 # Unified LLM interface (OpenAI-compatible)
 │
@@ -132,6 +143,12 @@ python -m experiments.e_oracle --sample_size 100
 # Dry run (3 examples only, for testing)
 python -m experiments.e_oracle --dry_run
 
+# Skip atomic FActScore (only full-scale metrics)
+python -m experiments.e_oracle --factscore_n 0
+
+# Custom FActScore subset size (default: 50)
+python -m experiments.e_oracle --factscore_n 100
+
 # Start fresh, ignoring previous results
 python -m experiments.e_oracle --no_resume
 ```
@@ -171,6 +188,7 @@ To add a new OpenRouter model, add an entry to `MODELS` in `config.py` with `mod
 
 ## Key Design Decisions
 
+- **Two-tier evaluation**: Lightweight hallucination metrics run on all 500 samples; expensive atomic FActScore runs on a configurable subset (default 50). This balances cost and coverage.
 - **Unified LLM interface**: All providers use OpenAI-compatible APIs, so `src/generation.py` is a single thin wrapper.
 - **OpenRouter support**: A single `OPENROUTER_API_KEY` can access all models, useful when direct API access is unavailable.
 - **Per-model output directories**: Each model's results are isolated under `outputs/<experiment>/<model_key>/`, preventing cross-contamination.

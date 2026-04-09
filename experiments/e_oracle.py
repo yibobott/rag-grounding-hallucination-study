@@ -40,6 +40,7 @@ def run_e_oracle(
     output_dir: Path | None = None,
     dry_run: bool = False,
     resume: bool = True,
+    factscore_n: int = 0,
 ):
     """Run the E-Oracle experiment.
 
@@ -49,6 +50,7 @@ def run_e_oracle(
         output_dir: where to save results.
         dry_run: if True, only process the first 3 examples (for testing).
         resume: if True, skip examples that already have saved results.
+        factscore_n: compute atomic FActScore on the first N examples (0 = skip).
     """
 
     # ----------------------------------- setup ---------------------------------- #
@@ -108,6 +110,7 @@ def run_e_oracle(
     # ------------------------ Run generation + evaluation ----------------------- #
     all_results = list(existing_results)
     all_metrics_list: list[dict] = [r["metrics"] for r in existing_results]
+    processed_count = len(all_results)
 
     with open(results_file, "a") as fout:
         for example in tqdm(samples, desc="E-Oracle"):
@@ -132,15 +135,22 @@ def run_e_oracle(
                 logger.error("Generation failed for %s: %s", example["id"], e)
                 prediction = "[ERROR]"
 
+            # Decide which LLM-based metrics to compute for this example
+            do_factscore = factscore_n > 0 and processed_count < factscore_n
+
             # Evaluate
             # For Oracle, retrieved_titles == gold titles → Precision@5 = 1.0
             retrieved_titles = [d["title"] for d in oracle_docs]
             metrics = compute_all_metrics(
                 prediction=prediction,
                 gold_answer=example["answer"],
+                question=example["question"],
                 docs=oracle_docs,
                 gold_titles=gold_titles,
                 retrieved_titles=retrieved_titles,
+                model_key=model_key,
+                compute_hallucination=True,
+                compute_factscore=do_factscore,
             )
 
             # Record
@@ -158,11 +168,25 @@ def run_e_oracle(
 
             all_results.append(record)
             all_metrics_list.append(metrics)
+            processed_count += 1
 
     # ----------------------------- Aggregate & save ----------------------------- #
     agg = aggregate_metrics(all_metrics_list)
     agg["experiment"] = "E-Oracle"
     agg["model"] = model_key
+
+    # Compute hallucination rate (proportion of examples with hallucination)
+    hal_flags = [m.get("has_hallucination") for m in all_metrics_list
+                 if m.get("has_hallucination") is not None]
+    if hal_flags:
+        agg["hallucination_rate"] = sum(hal_flags) / len(hal_flags)
+
+    # Aggregate FActScore separately (subset only)
+    fs_scores = [m["factscore"] for m in all_metrics_list if "factscore" in m]
+    if fs_scores:
+        agg["factscore_n"] = len(fs_scores)
+        agg["mean_factscore"] = sum(fs_scores) / len(fs_scores)
+
     metrics_file.write_text(json.dumps(agg, indent=2, ensure_ascii=False))
 
     # ------------------------------- Print summary ------------------------------ #
@@ -175,6 +199,13 @@ def run_e_oracle(
     print(f"  Semantic Match    : {agg['mean_semantic_match']:.4f}")
     if "mean_citation_grounding_rate" in agg:
         print(f"  Citation Grounding: {agg['mean_citation_grounding_rate']:.4f}")
+    if "hallucination_rate" in agg:
+        print(f"  Hallucination Rate: {agg['hallucination_rate']:.4f}")
+    if "mean_faithfulness" in agg:
+        print(f"  Faithfulness      : {agg['mean_faithfulness']:.4f}")
+    if "mean_factscore" in agg:
+        print(f"  FActScore (n={agg['factscore_n']})"
+              f"  : {agg['mean_factscore']:.4f}")
     print(f"  Results saved to  : {output_dir}")
     print("=" * 60)
 
@@ -189,6 +220,8 @@ def main():
                         help="Run on 3 examples only (for testing)")
     parser.add_argument("--no_resume", action="store_true",
                         help="Start fresh, ignore previous results")
+    parser.add_argument("--factscore_n", type=int, default=50,
+                        help="Compute atomic FActScore on the first N examples (default: 50, 0 to skip)")
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -201,6 +234,7 @@ def main():
         model_key=args.model,
         dry_run=args.dry_run,
         resume=not args.no_resume,
+        factscore_n=args.factscore_n,
     )
 
 
