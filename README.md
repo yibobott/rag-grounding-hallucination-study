@@ -36,7 +36,8 @@ The raw LLM output is then split into two branches for evaluation:
 Raw LLM output
 │
 ├─ parse_structured_output()
-│   └─ Extract text after "Answer:" ──► EM / Token F1 / Semantic Match / FActScore (decompose)
+│   └─ Extract text after "Answer:" ──► EM / Token F1 / Semantic Match
+│                                    ──► + Question → rewrite → decompose → verify (FActScore)
 │
 └─ Full raw output as-is ──► Citation Grounding / Hallucination / Faithfulness
 ```
@@ -44,10 +45,16 @@ Raw LLM output
 **Example:**
 
 ```
-Raw output:  "Answer: Greenwich Village, New York City\nCitations: [Doc 2]"
+Q: "The director of 'Big Stone Gap' is based in what New York city?"
+Raw output: "Answer: Greenwich Village, New York City\nCitations: [Doc 2]"
 
-  → Extracted answer:  "Greenwich Village, New York City"   ← used for EM / F1 / Semantic Match
-  → Full raw output:   (unchanged)                          ← used for grounding & hallucination metrics
+  → Extracted answer: "Greenwich Village, New York City"
+      → EM / F1 / Semantic Match (vs gold answer)
+      → + Q → rewrite: "The director of Big Stone Gap is based in Greenwich Village, New York City."
+           → decompose → verify against docs (FActScore)
+
+  → Full raw output (unchanged)
+      → Citation Grounding / Hallucination / Faithfulness
 ```
 
 **Fallback:** If the model does not follow the `Answer: / Citations:` format, the parser strips `[Doc N]` tags from the raw output and uses the remaining text as the answer.
@@ -72,7 +79,7 @@ We use a **two-tier evaluation** design to balance coverage and cost.
 
 | Metric | Input | Type | Cost |
 |--------|-------|------|------|
-| **Atomic FActScore** | Extracted answer | Factual precision | ~6 LLM calls/sample |
+| **Atomic FActScore** | Extracted answer + Question | Factual precision | ~8 LLM calls/sample |
 
 FActScore first **rewrites Q+A into a declarative statement** (e.g. Q: "In what year?" A: "1755" → "The university was founded in 1755"), then decomposes it into atomic claims and verifies each against the documents. The rewrite step gives claims full context, avoiding false negatives when verifying short answers. Running on a 50-sample subset keeps cost manageable while providing fine-grained hallucination analysis.
 
@@ -118,6 +125,13 @@ rag-grounding-hallucination-study/
             ├── results.jsonl         # Per-example results
             └── metrics.json          # Aggregate metrics
 ```
+
+## Data
+
+- **HotpotQA** (dev, distractor setting): 500 examples sampled with `seed=42`, fixed across all experiments for fair comparison.
+- **PubMedQA** (E6, cross-domain): loaded separately via `src/data/pubmedqa.py`.
+
+The 500 HotpotQA samples are drawn from the validation split using `random.sample` with a fixed seed, so every experiment uses the exact same subset.
 
 ## Setup
 
@@ -195,6 +209,86 @@ outputs/e_oracle/
 ├── or_deepseek-v3/       # --model or/deepseek-v3
 └── or_llama-3-8b/        # --model or/llama-3-8b
 ```
+
+### Understanding the results
+
+Each experiment run produces three files under `outputs/<experiment>/<model_key>/`:
+
+| File | Content |
+|------|---------|
+| `run_config.json` | Run parameters (model, sample_size, seed) |
+| `results.jsonl` | Per-example results (one JSON object per line) |
+| `metrics.json` | Aggregate metrics across all examples |
+
+**`results.jsonl`** — each line contains:
+
+```json
+{
+  "id": "5a8e3ea95542995a26add48d",
+  "question": "The director of ... is based in what New York city?",
+  "gold_answer": "Greenwich Village, New York City",
+  "prediction": "Answer: Greenwich Village, New York City\nCitations: [Doc 2]",
+  "extracted_answer": "Greenwich Village, New York City",
+  "metrics": {
+    "em": 1.0, "token_f1": 1.0, "semantic_match": 1.0,
+    "citation_grounding_rate": 1.0,
+    "has_hallucination": false, "faithfulness": 1.0,
+    "factscore": 1.0, "num_claims": 2, "num_supported_claims": 2
+  }
+}
+```
+
+- **`prediction`**: raw LLM output (with `Answer:` / `Citations:` format)
+- **`extracted_answer`**: parsed short answer used for EM / F1 / Semantic Match
+- **`metrics`**: all computed metrics for this example; `factscore` fields only present for the first N samples
+
+**`metrics.json`** — aggregate means, e.g.:
+
+```json
+{
+  "mean_em": 0.486,
+  "mean_token_f1": 0.6942342422799079,
+  "mean_semantic_match": 0.7746674825008959,
+  "mean_retrieval_precision_at_5": 1.0,
+  "mean_citation_grounding_rate": 0.98,
+  "mean_num_citations": 1.46,
+  "mean_num_grounded": 1.46,
+  "mean_has_hallucination": 0.032,
+  "mean_faithfulness": 0.961,
+  "mean_factscore": 0.9233333333333333,
+  "mean_num_claims": 1.88,
+  "mean_num_supported_claims": 1.76,
+  "n": 500,
+  "experiment": "E-Oracle",
+  "model": "or/gpt-4o-mini",
+  "hallucination_rate": 0.032,
+  "factscore_n": 50
+}
+```
+
+Field reference:
+
+| Field | Meaning | Expected range (Oracle) |
+|-------|---------|------------------------|
+| `mean_em` | Exact string match after normalization | 0.4–0.6 (strict; penalizes verbosity) |
+| `mean_token_f1` | Overlapping tokens between prediction and gold | 0.6–0.8 |
+| `mean_semantic_match` | Cosine similarity of sentence embeddings | 0.7–0.9 |
+| `mean_retrieval_precision_at_5` | Fraction of top-5 retrieved docs that are gold | 1.0 (Oracle injects gold docs) |
+| `mean_citation_grounding_rate` | Fraction of `[Doc N]` citations pointing to gold documents | ~1.0 |
+| `mean_num_citations` | Average number of `[Doc N]` tags per answer | — |
+| `mean_num_grounded` | Average number of citations that point to gold documents | — |
+| `mean_has_hallucination` | Fraction of samples where LLM judge detected hallucination | <0.05 |
+| `hallucination_rate` | Same as `mean_has_hallucination` (convenience alias) | <0.05 |
+| `mean_faithfulness` | Average faithfulness score (0–1) from LLM judge | >0.95 |
+| `mean_factscore` | Fraction of atomic claims supported by documents | >0.9 |
+| `mean_num_claims` | Average number of atomic claims per answer (FActScore subset) | — |
+| `mean_num_supported_claims` | Average number of supported claims (FActScore subset) | — |
+| `n` | Total number of examples evaluated | 500 |
+| `experiment` | Experiment name | — |
+| `model` | Model key used for generation | — |
+| `factscore_n` | Number of samples used for FActScore computation | 50 |
+
+> **Note:** EM is intentionally strict — a correct answer phrased differently from the gold (e.g. "Yes, both are opera composers" vs "yes") scores 0. Token F1 and Semantic Match provide more forgiving measurements. Always read the three answer-accuracy metrics together.
 
 ### Resume behavior
 
