@@ -1,0 +1,8 @@
+{
+  "experiment": "E1-BM25",
+  "model": "or/gpt-4o-mini",
+  "sample_size": 500,
+  "seed": 42,
+  "top_k": 5,
+  "description": "BM25 sparse retrieval baseline \u2014 re-rank 10 distractor docs, top-5"
+}

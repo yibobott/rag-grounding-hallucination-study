@@ -1,0 +1,15 @@
+{
+  "mean_em": 0.0,
+  "mean_token_f1": 0.11111111111111112,
+  "mean_semantic_match": 0.1092728308091561,
+  "mean_retrieval_precision_at_5": 0.20000000000000004,
+  "mean_citation_grounding_rate": 0.16666666666666666,
+  "mean_num_citations": 0.6666666666666666,
+  "mean_num_grounded": 0.3333333333333333,
+  "mean_has_hallucination": 0.0,
+  "mean_faithfulness": 0.5,
+  "n": 3,
+  "experiment": "E1-BM25",
+  "model": "or/gpt-4o-mini",
+  "hallucination_rate": 0.0
+}

@@ -1,12 +1,11 @@
 """
-E-Oracle: Oracle RAG Upper Bound
-=================================
-Gold supporting passages from HotpotQA are injected directly into the prompt.
-This establishes the performance ceiling for RAG — what happens when retrieval
-is perfect.
+E1: BM25 Sparse Retrieval Baseline
+====================================
+For each HotpotQA question, BM25 ranks the 10 distractor-setting context
+documents and selects the top-5. These are fed to GPT-4o-mini for generation.
 
 Usage:
-    python -m experiments.e_oracle [--sample_size 500] [--model gpt-4o-mini] [--dry_run]
+    python -m experiments.e1_bm25 [--sample_size 500] [--model gpt-4o-mini] [--dry_run]
 
 Args:
     sample_size: number of HotpotQA examples to use.
@@ -25,7 +24,8 @@ from tqdm import tqdm
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import config
-from src.data import load_hotpotqa, extract_oracle_docs, get_gold_titles
+from src.data import load_hotpotqa, get_all_context_docs, get_gold_titles
+from src.retrieval import bm25_retrieve
 from src.prompts import RAG_SYSTEM_PROMPT, build_rag_user_prompt
 from src.generation import generate
 from src.evaluation import compute_all_metrics
@@ -34,15 +34,17 @@ from src.evaluation.metrics import aggregate_metrics, parse_structured_output
 logger = logging.getLogger(__name__)
 
 
-def run_e_oracle(
+def run_e1_bm25(
     sample_size: int = config.HOTPOTQA_SAMPLE_SIZE,
     model_key: str = config.DEFAULT_MODEL,
     output_dir: Path | None = None,
     dry_run: bool = False,
     resume: bool = True,
     factscore_n: int = 0,
+    top_k: int = config.TOP_K,
 ):
-    """Run the E-Oracle experiment.
+    """
+    Run the E1 BM25 sparse retrieval experiment.
 
     Args:
         sample_size: number of HotpotQA examples to use.
@@ -51,12 +53,13 @@ def run_e_oracle(
         dry_run: if True, only process the first 3 examples (for testing).
         resume: if True, skip examples that already have saved results.
         factscore_n: compute atomic FActScore on the first N examples (0 = skip).
+        top_k: number of documents to retrieve (default: 5).
     """
 
     # ----------------------------------- setup ---------------------------------- #
     if output_dir is None:
         model_dir = model_key.replace("/", "_")
-        output_dir = config.OUTPUT_DIR / "e_oracle" / model_dir
+        output_dir = config.OUTPUT_DIR / "e1_bm25" / model_dir
     output_dir.mkdir(parents=True, exist_ok=True)
 
     results_file = output_dir / "results.jsonl"
@@ -65,11 +68,12 @@ def run_e_oracle(
 
     # Run configuration (used for both saving and resume validation)
     run_cfg = {
-        "experiment": "E-Oracle",
+        "experiment": "E1-BM25",
         "model": model_key,
         "sample_size": sample_size,
         "seed": config.RANDOM_SEED,
-        "description": "Oracle RAG upper bound — gold supporting passages injected",
+        "top_k": top_k,
+        "description": "BM25 sparse retrieval baseline — re-rank 10 distractor docs, top-5",
     }
 
     # --------------------------------- Load data -------------------------------- #
@@ -121,16 +125,23 @@ def run_e_oracle(
     processed_count = len(all_results)
 
     with open(results_file, "a") as fout:
-        for example in tqdm(samples, desc="E-Oracle"):
+        for example in tqdm(samples, desc="E1-BM25"):
             if example["id"] in done_ids:
                 continue
 
-            # Extract oracle documents
-            oracle_docs = extract_oracle_docs(example)
+            # Get all 10 context documents and gold titles
+            all_docs = get_all_context_docs(example)
             gold_titles = get_gold_titles(example)
 
+            # BM25 retrieval: rank 10 docs, take top-k
+            retrieved_docs = bm25_retrieve(
+                query=example["question"],
+                docs=all_docs,
+                top_k=top_k,
+            )
+
             # Build prompt
-            user_prompt = build_rag_user_prompt(example["question"], oracle_docs)
+            user_prompt = build_rag_user_prompt(example["question"], retrieved_docs)
 
             # Generate
             try:
@@ -153,13 +164,12 @@ def run_e_oracle(
             do_factscore = factscore_n > 0 and processed_count < factscore_n
 
             # Evaluate
-            # For Oracle, retrieved_titles == gold titles → Precision@5 = 1.0
-            retrieved_titles = [d["title"] for d in oracle_docs]
+            retrieved_titles = [d["title"] for d in retrieved_docs]
             metrics = compute_all_metrics(
                 prediction=prediction,
                 gold_answer=example["answer"],
                 question=example["question"],
-                docs=oracle_docs,
+                docs=retrieved_docs,
                 gold_titles=gold_titles,
                 retrieved_titles=retrieved_titles,
                 model_key=model_key,
@@ -175,8 +185,15 @@ def run_e_oracle(
                 "gold_answer": example["answer"],
                 "prediction": prediction,
                 "extracted_answer": parsed["answer"],
-                "oracle_docs": [{"title": d["title"], "text": d["text"]}
-                                for d in oracle_docs],
+                "retrieved_docs": [
+                    {
+                        "title": d["title"],
+                        "text": d["text"],
+                        "bm25_score": d["bm25_score"],
+                        "original_index": d["original_index"],
+                    }
+                    for d in retrieved_docs
+                ],
                 "metrics": metrics,
             }
             fout.write(json.dumps(record, ensure_ascii=False) + "\n")
@@ -188,7 +205,7 @@ def run_e_oracle(
 
     # ----------------------------- Aggregate & save ----------------------------- #
     agg = aggregate_metrics(all_metrics_list)
-    agg["experiment"] = "E-Oracle"
+    agg["experiment"] = "E1-BM25"
     agg["model"] = model_key
 
     # Compute hallucination rate (proportion of examples with hallucination)
@@ -207,12 +224,14 @@ def run_e_oracle(
 
     # ------------------------------- Print summary ------------------------------ #
     print("\n" + "=" * 60)
-    print("E-Oracle Results Summary")
+    print("E1-BM25 Results Summary")
     print("=" * 60)
     print(f"  Samples evaluated : {agg['n']}")
     print(f"  Exact Match       : {agg['mean_em']:.4f}")
     print(f"  Token F1          : {agg['mean_token_f1']:.4f}")
     print(f"  Semantic Match    : {agg['mean_semantic_match']:.4f}")
+    if "mean_retrieval_precision_at_5" in agg:
+        print(f"  Precision@5       : {agg['mean_retrieval_precision_at_5']:.4f}")
     if "mean_citation_grounding_rate" in agg:
         print(f"  Citation Grounding: {agg['mean_citation_grounding_rate']:.4f}")
     if "hallucination_rate" in agg:
@@ -229,7 +248,7 @@ def run_e_oracle(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="E-Oracle: Oracle RAG upper bound")
+    parser = argparse.ArgumentParser(description="E1: BM25 sparse retrieval baseline")
     parser.add_argument("--sample_size", type=int, default=config.HOTPOTQA_SAMPLE_SIZE)
     parser.add_argument("--model", type=str, default=config.DEFAULT_MODEL)
     parser.add_argument("--dry_run", action="store_true",
@@ -238,6 +257,8 @@ def main():
                         help="Start fresh, ignore previous results")
     parser.add_argument("--factscore_n", type=int, default=50,
                         help="Compute atomic FActScore on the first N examples (default: 50, 0 to skip)")
+    parser.add_argument("--top_k", type=int, default=config.TOP_K,
+                        help="Number of documents to retrieve (default: 5)")
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -245,12 +266,13 @@ def main():
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
 
-    run_e_oracle(
+    run_e1_bm25(
         sample_size=args.sample_size,
         model_key=args.model,
         dry_run=args.dry_run,
         resume=not args.no_resume,
         factscore_n=args.factscore_n,
+        top_k=args.top_k,
     )
 
 

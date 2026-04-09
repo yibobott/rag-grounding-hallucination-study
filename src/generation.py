@@ -4,7 +4,7 @@ Unified LLM generation interface (all providers are OpenAI-compatible).
 
 import time
 import logging
-from openai import OpenAI
+from openai import OpenAI, AuthenticationError, RateLimitError
 
 import config
 
@@ -55,6 +55,18 @@ def generate(
                 max_tokens=mt,
             )
             return resp.choices[0].message.content.strip()
+        except (AuthenticationError, RateLimitError) as e:
+            # Permanent errors: bad key or quota exhausted — no point retrying
+            if isinstance(e, AuthenticationError) or "insufficient_quota" in str(e):
+                logger.error("Permanent API error for %s: %s", model_key, e)
+                raise
+            # Transient rate-limit — retry
+            logger.warning("Attempt %d/%d failed for %s: %s",
+                           attempt, max_retries, model_key, e)
+            if attempt < max_retries:
+                time.sleep(retry_delay * attempt)
+            else:
+                raise
         except Exception as e:
             logger.warning("Attempt %d/%d failed for %s: %s",
                            attempt, max_retries, model_key, e)
