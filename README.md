@@ -72,6 +72,7 @@ We use a **two-tier evaluation** design to balance coverage and cost.
 | **Semantic Match** | Extracted answer | Answer accuracy | Free (local) |
 | **Retrieval Precision@5** | Retrieved docs | Retrieval quality | Free (local) |
 | **Citation Grounding Rate** | Full raw output | Evidence grounding | Free (local) |
+| **Num Citations / Num Grounded** | Full raw output | Evidence grounding | Free (local) |
 | **LLM Hallucination Check** | Full raw output | Hallucination (YES/NO) | 1 LLM call/sample |
 | **Faithfulness Score** | Full raw output | Faithfulness (0–1) | 1 LLM call/sample |
 
@@ -82,6 +83,8 @@ We use a **two-tier evaluation** design to balance coverage and cost.
 | **Atomic FActScore** | Extracted answer + Question | Factual precision | ~8 LLM calls/sample |
 
 FActScore first **rewrites Q+A into a declarative statement** (e.g. Q: "In what year?" A: "1755" → "The university was founded in 1755"), then decomposes it into atomic claims and verifies each against the documents. The rewrite step gives claims full context, avoiding false negatives when verifying short answers. Running on a 50-sample subset keeps cost manageable while providing fine-grained hallucination analysis.
+
+> **E0 note:** E0 has no retrieval, so Retrieval Precision@5, Citation Grounding Rate, Num Citations, and Num Grounded are recorded as `null`. Hallucination, Faithfulness, and FActScore are evaluated against **gold supporting passages** — measuring whether the model's parametric answer happens to be consistent with the ground-truth evidence. This enables direct comparison with E-Oracle and E1–E3 on the same scale.
 
 ### Human evaluation
 
@@ -104,7 +107,8 @@ rag-grounding-hallucination-study/
 │   │   ├── hotpotqa.py               # HotpotQA loading + oracle/context extraction
 │   │   └── pubmedqa.py               # PubMedQA loading (E6)
 │   ├── retrieval/
-│   │   └── __init__.py               # BM25, Contriever, Hybrid (E1–E3)
+│   │   ├── __init__.py               # Unified re-exports (bm25_retrieve, ...)
+│   │   └── bm25.py                  # BM25 sparse retrieval (E1)
 │   ├── evaluation/
 │   │   ├── __init__.py               # compute_all_metrics unified entry point
 │   │   ├── metrics.py                # Output parser, EM, F1, Semantic Match, Precision@K
@@ -116,11 +120,20 @@ rag-grounding-hallucination-study/
 │
 ├── experiments/
 │   ├── __init__.py
-│   └── e_oracle.py                   # E-Oracle: Oracle RAG upper bound
+│   ├── e0_no_rag.py                  # E0: No-RAG baseline
+│   ├── e_oracle.py                   # E-Oracle: Oracle RAG upper bound
+│   └── e1_bm25.py                   # E1: BM25 sparse retrieval baseline
+│
+├── data/                             # Local data cache (gitignored, auto-generated)
+│   └── hotpotqa_500_seed42.json     # Cached 500 HotpotQA samples
 │
 └── outputs/                          # Experiment results (gitignored)
-    └── e_oracle/
-        └── <model_key>/              # Per-model subdirectory
+    ├── e0_no_rag/
+    │   └── <model_key>/
+    ├── e_oracle/
+    │   └── <model_key>/
+    └── e1_bm25/
+        └── <model_key>/
             ├── run_config.json       # Run configuration
             ├── results.jsonl         # Per-example results
             └── metrics.json          # Aggregate metrics
@@ -131,7 +144,7 @@ rag-grounding-hallucination-study/
 - **HotpotQA** (dev, distractor setting): 500 examples sampled with `seed=42`, fixed across all experiments for fair comparison.
 - **PubMedQA** (E6, cross-domain): loaded separately via `src/data/pubmedqa.py`.
 
-The 500 HotpotQA samples are drawn from the validation split using `random.sample` with a fixed seed, so every experiment uses the exact same subset.
+The 500 HotpotQA samples are drawn from the validation split using `random.sample` with a fixed seed, so every experiment uses the exact same subset. On the first call, `load_hotpotqa()` downloads data from HuggingFace and caches it locally to `data/hotpotqa_500_seed42.json`. Subsequent calls load directly from this local file (fast, no network required).
 
 ## Setup
 
@@ -166,36 +179,52 @@ OPENROUTER_API_KEY=sk-or-v1-your-openrouter-key
 
 ```bash
 cd rag-grounding-hallucination-study
+python -m experiments.e0_no_rag --dry_run
 python -m experiments.e_oracle --dry_run
+python -m experiments.e1_bm25 --dry_run
 ```
 
 This runs 3 examples end-to-end to verify the pipeline works.
 
 ## Running Experiments
 
-All experiments are run from the project root directory:
+All experiments are run from the project root directory.
+
+### E0 — No-RAG baseline
 
 ```bash
-# E-Oracle with default model (gpt-4o-mini via OpenAI)
-python -m experiments.e_oracle
+python -m experiments.e0_no_rag                        # Default model (gpt-4o-mini via OpenAI)
+python -m experiments.e0_no_rag --model or/gpt-4o-mini # Via OpenRouter
+python -m experiments.e0_no_rag --dry_run               # Dry run (3 examples only)
+python -m experiments.e0_no_rag --sample_size 100       # Custom sample size
+python -m experiments.e0_no_rag --factscore_n 0         # Skip FActScore
+python -m experiments.e0_no_rag --factscore_n 100       # Custom FActScore subset
+python -m experiments.e0_no_rag --no_resume             # Start fresh
+```
 
-# E-Oracle via OpenRouter
-python -m experiments.e_oracle --model or/gpt-4o-mini
+> E0 computes answer accuracy (EM, Token F1, Semantic Match) and hallucination metrics (hallucination check, faithfulness, FActScore). Hallucination metrics are evaluated against **gold supporting passages** — measuring whether the model's parametric answer is consistent with the ground-truth evidence. This enables direct comparison with E-Oracle. Retrieval Precision@5 and Citation Grounding Rate are not applicable (no retrieval/citations).
 
-# Custom sample size
-python -m experiments.e_oracle --sample_size 100
+### E-Oracle — Oracle RAG upper bound
 
-# Dry run (3 examples only, for testing)
-python -m experiments.e_oracle --dry_run
+```bash
+python -m experiments.e_oracle                        # Default model (gpt-4o-mini via OpenAI)
+python -m experiments.e_oracle --model or/gpt-4o-mini # Via OpenRouter
+python -m experiments.e_oracle --dry_run               # Dry run (3 examples only)
+python -m experiments.e_oracle --sample_size 100       # Custom sample size
+python -m experiments.e_oracle --factscore_n 0         # Skip FActScore
+python -m experiments.e_oracle --factscore_n 100       # Custom FActScore subset
+python -m experiments.e_oracle --no_resume             # Start fresh
+```
 
-# Skip atomic FActScore (only full-scale metrics)
-python -m experiments.e_oracle --factscore_n 0
+### E1 — BM25 sparse retrieval baseline
 
-# Custom FActScore subset size (default: 50)
-python -m experiments.e_oracle --factscore_n 100
-
-# Start fresh, ignoring previous results
-python -m experiments.e_oracle --no_resume
+```bash
+python -m experiments.e1_bm25                                        # Default model + top-5
+python -m experiments.e1_bm25 --model or/gpt-4o-mini                 # Via OpenRouter
+python -m experiments.e1_bm25 --model or/gpt-4o-mini --top_k 3      # Custom top-k
+python -m experiments.e1_bm25 --dry_run                              # Dry run (3 examples only)
+python -m experiments.e1_bm25 --model or/gpt-4o-mini --factscore_n 0 # Skip FActScore
+python -m experiments.e1_bm25 --model or/gpt-4o-mini --no_resume     # Start fresh
 ```
 
 ### Output directory layout
@@ -203,11 +232,15 @@ python -m experiments.e_oracle --no_resume
 Results are saved per-experiment, per-model:
 
 ```
-outputs/e_oracle/
-├── gpt-4o-mini/          # --model gpt-4o-mini
-├── or_gpt-4o-mini/       # --model or/gpt-4o-mini
-├── or_deepseek-v3/       # --model or/deepseek-v3
-└── or_llama-3-8b/        # --model or/llama-3-8b
+outputs/
+├── e0_no_rag/
+│   ├── gpt-4o-mini/          # --model gpt-4o-mini
+│   └── or_gpt-4o-mini/       # --model or/gpt-4o-mini
+├── e_oracle/
+│   ├── gpt-4o-mini/          # --model gpt-4o-mini
+│   └── or_gpt-4o-mini/       # --model or/gpt-4o-mini
+└── e1_bm25/
+    └── or_gpt-4o-mini/       # --model or/gpt-4o-mini
 ```
 
 ### Understanding the results
@@ -222,6 +255,8 @@ Each experiment run produces three files under `outputs/<experiment>/<model_key>
 
 **`results.jsonl`** — each line contains:
 
+**E-Oracle / E1–E3 example** (RAG — all metrics available):
+
 ```json
 {
   "id": "5a8e3ea95542995a26add48d",
@@ -231,24 +266,45 @@ Each experiment run produces three files under `outputs/<experiment>/<model_key>
   "extracted_answer": "Greenwich Village, New York City",
   "metrics": {
     "em": 1.0, "token_f1": 1.0, "semantic_match": 1.0,
-    "citation_grounding_rate": 1.0,
+    "retrieval_precision_at_5": 1.0,
+    "citation_grounding_rate": 1.0, "num_citations": 1, "num_grounded": 1,
     "has_hallucination": false, "faithfulness": 1.0,
     "factscore": 1.0, "num_claims": 2, "num_supported_claims": 2
   }
 }
 ```
 
-- **`prediction`**: raw LLM output (with `Answer:` / `Citations:` format)
-- **`extracted_answer`**: parsed short answer used for EM / F1 / Semantic Match
-- **`metrics`**: all computed metrics for this example; `factscore` fields only present for the first N samples
+**E0 example** (No-RAG — retrieval/citation fields are `null`):
 
-**`metrics.json`** — aggregate means, e.g.:
+```json
+{
+  "id": "5a8e3ea95542995a26add48d",
+  "question": "The director of ... is based in what New York city?",
+  "gold_answer": "Greenwich Village, New York City",
+  "prediction": "Greenwich Village, New York City",
+  "metrics": {
+    "em": 1.0, "token_f1": 1.0, "semantic_match": 1.0,
+    "retrieval_precision_at_5": null,
+    "citation_grounding_rate": null, "num_citations": null, "num_grounded": null,
+    "has_hallucination": false, "faithfulness": 1.0,
+    "factscore": 1.0, "num_claims": 2, "num_supported_claims": 2
+  }
+}
+```
+
+- **`prediction`**: raw LLM output (RAG experiments include `Answer:` / `Citations:` format; E0 is plain text)
+- **`extracted_answer`**: parsed short answer used for EM / F1 / Semantic Match (RAG only; E0 uses raw prediction directly)
+- **`metrics`**: all computed metrics for this example; `factscore` fields only present for the first N samples; `null` fields indicate metrics not applicable to that experiment
+
+**`metrics.json`** — aggregate means:
+
+**E-Oracle example:**
 
 ```json
 {
   "mean_em": 0.486,
-  "mean_token_f1": 0.6942342422799079,
-  "mean_semantic_match": 0.7746674825008959,
+  "mean_token_f1": 0.6942,
+  "mean_semantic_match": 0.7747,
   "mean_retrieval_precision_at_5": 1.0,
   "mean_citation_grounding_rate": 0.98,
   "mean_num_citations": 1.46,
@@ -262,31 +318,54 @@ Each experiment run produces three files under `outputs/<experiment>/<model_key>
   "experiment": "E-Oracle",
   "model": "or/gpt-4o-mini",
   "hallucination_rate": 0.032,
+  "mean_factscore": 0.9233,
+  "factscore_n": 50
+}
+```
+
+**E0 example** (`null` for retrieval/citation metrics):
+
+```json
+{
+  "mean_em": 0.21,
+  "mean_token_f1": 0.32,
+  "mean_semantic_match": 0.45,
+  "mean_retrieval_precision_at_5": null,
+  "mean_citation_grounding_rate": null,
+  "mean_num_citations": null,
+  "mean_num_grounded": null,
+  "mean_has_hallucination": 0.35,
+  "mean_faithfulness": 0.58,
+  "n": 500,
+  "experiment": "E0-NoRAG",
+  "model": "or/gpt-4o-mini",
+  "hallucination_rate": 0.35,
+  "mean_factscore": 0.62,
   "factscore_n": 50
 }
 ```
 
 Field reference:
 
-| Field | Meaning | Expected range (Oracle) |
-|-------|---------|------------------------|
-| `mean_em` | Exact string match after normalization | 0.4–0.6 (strict; penalizes verbosity) |
-| `mean_token_f1` | Overlapping tokens between prediction and gold | 0.6–0.8 |
-| `mean_semantic_match` | Cosine similarity of sentence embeddings | 0.7–0.9 |
-| `mean_retrieval_precision_at_5` | Fraction of top-5 retrieved docs that are gold | 1.0 (Oracle injects gold docs) |
-| `mean_citation_grounding_rate` | Fraction of `[Doc N]` citations pointing to gold documents | ~1.0 |
-| `mean_num_citations` | Average number of `[Doc N]` tags per answer | — |
-| `mean_num_grounded` | Average number of citations that point to gold documents | — |
-| `mean_has_hallucination` | Fraction of samples where LLM judge detected hallucination | <0.05 |
-| `hallucination_rate` | Same as `mean_has_hallucination` (convenience alias) | <0.05 |
-| `mean_faithfulness` | Average faithfulness score (0–1) from LLM judge | >0.95 |
-| `mean_factscore` | Fraction of atomic claims supported by documents | >0.9 |
-| `mean_num_claims` | Average number of atomic claims per answer (FActScore subset) | — |
-| `mean_num_supported_claims` | Average number of supported claims (FActScore subset) | — |
-| `n` | Total number of examples evaluated | 500 |
-| `experiment` | Experiment name | — |
-| `model` | Model key used for generation | — |
-| `factscore_n` | Number of samples used for FActScore computation | 50 |
+| Field | Meaning | E0 | Oracle | E1-BM25 |
+|-------|---------|-----|--------|----------|
+| `mean_em` | Exact string match after normalization | 0.15–0.30 | 0.4–0.6 | 0.1–0.3 |
+| `mean_token_f1` | Overlapping tokens between prediction and gold | 0.25–0.40 | 0.6–0.8 | 0.3–0.5 |
+| `mean_semantic_match` | Cosine similarity of sentence embeddings [-1,1] | 0.35–0.55 | 0.7–0.9 | 0.3–0.6 |
+| `mean_retrieval_precision_at_5` | Fraction of top-5 retrieved docs that are gold | `null` | 1.0 | 0.3–0.5 |
+| `mean_citation_grounding_rate` | Fraction of `[Doc N]` citations pointing to gold documents | `null` | ~1.0 | varies |
+| `mean_num_citations` | Average number of `[Doc N]` tags per answer | `null` | — | — |
+| `mean_num_grounded` | Average number of citations that point to gold documents | `null` | — | — |
+| `mean_has_hallucination` | Fraction of samples where LLM judge detected hallucination | 0.2–0.5 | <0.05 | 0.05–0.15 |
+| `hallucination_rate` | Same as `mean_has_hallucination` (convenience alias) | 0.2–0.5 | <0.05 | 0.05–0.15 |
+| `mean_faithfulness` | Average faithfulness score (0–1) from LLM judge | 0.4–0.7 | >0.95 | 0.6–0.85 |
+| `mean_factscore` | Fraction of atomic claims supported by documents | 0.4–0.7 | >0.9 | 0.6–0.85 |
+| `mean_num_claims` | Average number of atomic claims per answer (FActScore subset) | — | — | — |
+| `mean_num_supported_claims` | Average number of supported claims (FActScore subset) | — | — | — |
+| `n` | Total number of examples evaluated | 500 | 500 | 500 |
+| `experiment` | Experiment name | `E0-NoRAG` | `E-Oracle` | `E1-BM25` |
+| `model` | Model key used for generation | — | — | — |
+| `factscore_n` | Number of samples used for FActScore computation | 50 | 50 | 50 |
 
 > **Note:** EM is intentionally strict — a correct answer phrased differently from the gold (e.g. "Yes, both are opera composers" vs "yes") scores 0. Token F1 and Semantic Match provide more forgiving measurements. Always read the three answer-accuracy metrics together.
 
@@ -320,4 +399,6 @@ To add a new OpenRouter model, add an entry to `MODELS` in `config.py` with `mod
 - **Per-model output directories**: Each model's results are isolated under `outputs/<experiment>/<model_key>/`, preventing cross-contamination.
 - **Safe resume**: Resume validates config before reusing results. Mismatched configs trigger an error instead of silently deleting data.
 - **Fixed seed sampling**: `seed=42` ensures all experiments use the same 500 HotpotQA examples for fair comparison.
+- **Local data caching**: `load_hotpotqa()` caches sampled data to `data/hotpotqa_500_seed42.json` on first call. Eliminates repeated HuggingFace network requests and speeds up experiment startup.
 - **Lazy model loading**: The sentence-transformers model for Semantic Match is loaded on first use, not at import time.
+- **Permanent error detection**: API errors like `insufficient_quota` or `invalid_api_key` are detected immediately — the program aborts instead of retrying and producing `[ERROR]` results.
