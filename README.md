@@ -390,6 +390,46 @@ All providers use OpenAI-compatible APIs. Models can be accessed either directly
 
 To add a new OpenRouter model, add an entry to `MODELS` in `config.py` with `model_name` set to the [OpenRouter model ID](https://openrouter.ai/models).
 
+## Results & Analysis
+
+All experiments use GPT-4o-mini (`or/gpt-4o-mini` via OpenRouter) on the same 500 HotpotQA samples (`seed=42`).
+
+### Metric comparison (E0 / E1 / E-Oracle)
+
+| Metric | E0 (No-RAG) | E1 (BM25) | E-Oracle | Trend |
+|--------|:-----------:|:---------:|:--------:|-------|
+| **EM** | 0.132 | 0.322 | 0.486 | E0 < E1 < Oracle |
+| **Token F1** | 0.283 | 0.495 | 0.694 | E0 < E1 < Oracle |
+| **Semantic Match** | 0.465 | 0.588 | 0.775 | E0 < E1 < Oracle |
+| **Retrieval P@5** | N/A | 0.310 | 1.000 | — |
+| **Citation Grounding** | N/A | 0.723 | 0.980 | — |
+| **Hallucination Rate** | 0.440 | 0.082 | 0.032 | E0 > E1 > Oracle |
+| **Faithfulness** | 0.543 | 0.770 | 0.961 | E0 < E1 < Oracle |
+| **FActScore** (n=50) | 0.598 | 0.773 | 0.923 | E0 < E1 < Oracle |
+
+### Key findings
+
+**1. Retrieval dramatically reduces hallucination.**
+The hallucination rate drops from 44.0% (E0, no retrieval) to 8.2% (E1, BM25 retrieval) — an **81% reduction** — even though BM25 retrieval precision is only 31%. With perfect retrieval (E-Oracle), hallucination falls to 3.2% — a **93% reduction** from E0. This is the central finding: even imperfect retrieval provides strong grounding.
+
+**2. Answer accuracy scales with retrieval quality.**
+EM improves 2.4x from E0 (0.132) to E1 (0.322), and 3.7x to E-Oracle (0.486). Token F1 and Semantic Match follow the same monotonic trend. The gap between E1 and E-Oracle (EM +0.164) quantifies the room for improvement through better retrieval methods (E2 dense, E3 hybrid).
+
+**3. Faithfulness and FActScore form a consistent picture.**
+Faithfulness (LLM judge, 0–1) and FActScore (atomic claim verification) both rank E0 < E1 < E-Oracle with similar relative gaps. This cross-validation strengthens confidence in the hallucination findings.
+
+**4. The performance spectrum establishes clear baselines.**
+
+```
+E0 (floor)           E1 (BM25)             E-Oracle (ceiling)
+  Parametric only      Imperfect retrieval    Perfect retrieval
+  EM 0.132             EM 0.322              EM 0.486
+  Hal. 44.0%           Hal. 8.2%             Hal. 3.2%
+  ◄─── retrieval gap ──────────────────────► 
+```
+
+E0 and E-Oracle bracket the achievable range. All subsequent retrieval experiments (E2 dense, E3 hybrid, E8 enhanced) are expected to fall between E1 and E-Oracle, with the goal of closing the gap toward the Oracle ceiling.
+
 ## Key Design Decisions
 
 - **Structured output + dual-branch evaluation**: RAG prompts require the LLM to output `Answer: ...` and `Citations: ...` on separate lines. The extracted short answer feeds EM/F1/Semantic Match/FActScore; the full raw output feeds citation grounding and hallucination.
