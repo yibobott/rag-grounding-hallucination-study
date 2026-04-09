@@ -97,10 +97,14 @@ def run_e_oracle(
                     existing_results.append(rec)
             logger.info("Resuming: %d examples already completed.", len(done_ids))
         else:
+            diffs = []
+            for key in ("model", "sample_size", "seed"):
+                if saved_cfg.get(key) != run_cfg[key]:
+                    diffs.append(f"{key}: saved={saved_cfg.get(key)}, current={run_cfg[key]}")
             logger.error(
-                "Config mismatch in %s (saved model=%s, current model=%s). "
-                "Use --no_resume to start fresh, or use a different --model.",
-                output_dir, saved_cfg.get("model"), run_cfg["model"],
+                "Config mismatch in %s (%s). "
+                "Use --no_resume to start fresh, or use a different config.",
+                output_dir, "; ".join(diffs),
             )
             raise SystemExit(1)
 

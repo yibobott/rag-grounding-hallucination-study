@@ -1,0 +1,19 @@
+{
+  "mean_em": 0.6,
+  "mean_token_f1": 0.7866666666666667,
+  "mean_semantic_match": 0.8350483566522598,
+  "mean_retrieval_precision_at_5": 1.0,
+  "mean_citation_grounding_rate": 0.9,
+  "mean_num_citations": 1.2,
+  "mean_num_grounded": 1.2,
+  "mean_has_hallucination": 0.0,
+  "mean_faithfulness": 0.95,
+  "mean_factscore": 0.8666666666666666,
+  "mean_num_claims": 1.8,
+  "mean_num_supported_claims": 1.6,
+  "n": 10,
+  "experiment": "E-Oracle",
+  "model": "or/gpt-4o-mini",
+  "hallucination_rate": 0.0,
+  "factscore_n": 10
+}

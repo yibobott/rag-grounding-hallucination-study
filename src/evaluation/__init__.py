@@ -82,9 +82,9 @@ def compute_all_metrics(
             prediction, docs, model_key, question=question,
         )
 
-    # ---- Atomic FActScore (subset only, full raw output) ---- #
+    # ---- Atomic FActScore (subset only, extracted answer) ---- #
     if compute_factscore and docs is not None and model_key is not None:
-        fs = factscore(prediction, docs, model_key)
+        fs = factscore(prediction, docs, model_key, question=question)
         metrics["factscore"] = fs["factscore"]
         metrics["num_claims"] = fs["num_claims"]
         metrics["num_supported_claims"] = fs["num_supported"]

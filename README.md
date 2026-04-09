@@ -36,9 +36,9 @@ The raw LLM output is then split into two branches for evaluation:
 Raw LLM output
 │
 ├─ parse_structured_output()
-│   └─ Extract text after "Answer:" ──► EM / Token F1 / Semantic Match
+│   └─ Extract text after "Answer:" ──► EM / Token F1 / Semantic Match / FActScore (decompose)
 │
-└─ Full raw output as-is ──► Citation Grounding / Hallucination / Faithfulness / FActScore
+└─ Full raw output as-is ──► Citation Grounding / Hallucination / Faithfulness
 ```
 
 **Example:**
@@ -72,9 +72,9 @@ We use a **two-tier evaluation** design to balance coverage and cost.
 
 | Metric | Input | Type | Cost |
 |--------|-------|------|------|
-| **Atomic FActScore** | Full raw output | Factual precision | ~6 LLM calls/sample |
+| **Atomic FActScore** | Extracted answer | Factual precision | ~6 LLM calls/sample |
 
-FActScore decomposes each answer into atomic claims, then verifies each claim against the documents using an LLM judge. Running on a 50-sample subset keeps cost manageable (~300 calls) while providing fine-grained hallucination analysis.
+FActScore first **rewrites Q+A into a declarative statement** (e.g. Q: "In what year?" A: "1755" → "The university was founded in 1755"), then decomposes it into atomic claims and verifies each against the documents. The rewrite step gives claims full context, avoiding false negatives when verifying short answers. Running on a 50-sample subset keeps cost manageable while providing fine-grained hallucination analysis.
 
 ### Human evaluation
 
@@ -219,7 +219,7 @@ To add a new OpenRouter model, add an entry to `MODELS` in `config.py` with `mod
 
 ## Key Design Decisions
 
-- **Structured output + dual-branch evaluation**: RAG prompts require the LLM to output `Answer: ...` and `Citations: ...` on separate lines. The extracted short answer feeds EM/F1/Semantic Match; the full raw output feeds citation grounding, hallucination, and FActScore.
+- **Structured output + dual-branch evaluation**: RAG prompts require the LLM to output `Answer: ...` and `Citations: ...` on separate lines. The extracted short answer feeds EM/F1/Semantic Match/FActScore; the full raw output feeds citation grounding and hallucination.
 - **Two-tier evaluation**: Lightweight hallucination metrics run on all 500 samples; expensive atomic FActScore runs on a configurable subset (default 50). This balances cost and coverage.
 - **Unified LLM interface**: All providers use OpenAI-compatible APIs, so `src/generation.py` is a single thin wrapper.
 - **OpenRouter support**: A single `OPENROUTER_API_KEY` can access all models, useful when direct API access is unavailable.

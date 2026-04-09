@@ -1,0 +1,7 @@
+{
+  "experiment": "E-Oracle",
+  "model": "or/gpt-4o-mini",
+  "sample_size": 10,
+  "seed": 42,
+  "description": "Oracle RAG upper bound \u2014 gold supporting passages injected"
+}
