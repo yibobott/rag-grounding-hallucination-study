@@ -120,6 +120,7 @@ rag-grounding-hallucination-study/
 │
 ├── experiments/
 │   ├── __init__.py
+│   ├── base.py                       # Shared experiment runner (data load, resume, eval, summary)
 │   ├── e0_no_rag.py                  # E0: No-RAG baseline
 │   ├── e_oracle.py                   # E-Oracle: Oracle RAG upper bound
 │   └── e1_bm25.py                   # E1: BM25 sparse retrieval baseline
