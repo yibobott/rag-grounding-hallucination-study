@@ -134,9 +134,11 @@ def aggregate_metrics(all_metrics: list[dict]) -> dict:
     """
     if not all_metrics:
         return {}
-    keys = all_metrics[0].keys()
+    keys = set()
+    for m in all_metrics:
+        keys.update(m.keys())
     agg = {}
-    for k in keys:
+    for k in sorted(keys):
         vals = [m[k] for m in all_metrics if k in m and m[k] is not None]
         agg[f"mean_{k}"] = float(np.mean(vals)) if vals else None
     agg["n"] = len(all_metrics)
