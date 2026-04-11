@@ -1,0 +1,10 @@
+{
+  "experiment": "E4-E5-Generation-Comparison",
+  "model": "or/deepseek-v3",
+  "sample_size": 100,
+  "seed": 42,
+  "top_k": 5,
+  "rrf_k": 60,
+  "retriever": "BM25+Contriever+RRF (fixed)",
+  "description": "Generation model comparison with fixed hybrid retrieval"
+}

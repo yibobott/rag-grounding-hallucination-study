@@ -1,0 +1,11 @@
+{
+  "experiment": "E6-Cross-Domain-PubMedQA",
+  "model": "or/gpt-4o-mini",
+  "sample_size": 500,
+  "seed": 42,
+  "top_k": 5,
+  "rrf_k": 60,
+  "retriever": "BM25+Contriever+RRF",
+  "dataset": "PubMedQA labeled",
+  "description": "Cross-domain evaluation: best HotpotQA RAG config on PubMedQA"
+}

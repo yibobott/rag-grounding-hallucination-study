@@ -1,7 +1,11 @@
-"""Retrieval components (BM25, Contriever, Hybrid) — to be implemented for E1–E3."""
+"""Retrieval methods: BM25, Dense (Contriever), and Hybrid (RRF)."""
 
-from src.retrieval.bm25 import bm25_retrieve
+from .bm25 import bm25_retrieve
+from .dense import dense_retrieve
+from .fusion import hybrid_retrieve
 
 __all__ = [
     "bm25_retrieve",
+    "dense_retrieve",
+    "hybrid_retrieve",
 ]
