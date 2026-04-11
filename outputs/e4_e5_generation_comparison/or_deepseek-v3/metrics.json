@@ -1,0 +1,19 @@
+{
+  "mean_citation_grounding_rate": 0.8608333333333335,
+  "mean_em": 0.3,
+  "mean_factscore": 0.8633333333333333,
+  "mean_faithfulness": 0.958,
+  "mean_has_hallucination": 0.03,
+  "mean_num_citations": 1.35,
+  "mean_num_claims": 2.18,
+  "mean_num_grounded": 1.24,
+  "mean_num_supported_claims": 1.8,
+  "mean_retrieval_precision_at_5": 0.34800000000000003,
+  "mean_semantic_match": 0.6303447940060596,
+  "mean_token_f1": 0.4955533847779776,
+  "n": 100,
+  "experiment": "E4-E5-Generation-Comparison",
+  "model": "or/deepseek-v3",
+  "hallucination_rate": 0.03,
+  "factscore_n": 50
+}

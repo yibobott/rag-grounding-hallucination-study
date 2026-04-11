@@ -1,0 +1,10 @@
+{
+  "experiment": "E3-Hybrid",
+  "model": "or/gpt-4o-mini",
+  "sample_size": 500,
+  "seed": 42,
+  "top_k": 5,
+  "rrf_k": 60,
+  "retriever": "BM25+Contriever+RRF",
+  "description": "Hybrid retrieval: BM25 + Contriever fused by RRF"
+}

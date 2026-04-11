@@ -1,0 +1,9 @@
+{
+  "experiment": "E2-Dense",
+  "model": "gpt-4o-mini",
+  "sample_size": 500,
+  "seed": 42,
+  "top_k": 5,
+  "retriever": "Contriever",
+  "description": "Dense retrieval baseline \u2014 Contriever re-rank 10 distractor docs, top-5"
+}

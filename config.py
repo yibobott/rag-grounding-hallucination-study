@@ -64,7 +64,7 @@ MODELS = {
     },
     "or/llama-3-8b": {
         "provider": "openrouter",
-        "model_name": "meta-llama/llama-3-8b",
+        "model_name": "meta-llama/llama-3-8b-instruct",
         "api_key": OPENROUTER_API_KEY,
         "base_url": "https://openrouter.ai/api/v1",
         "temperature": 0.0,
