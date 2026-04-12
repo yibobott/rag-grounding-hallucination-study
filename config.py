@@ -70,6 +70,17 @@ MODELS = {
         "temperature": 0.0,
         "max_tokens": 512,
     },
+    "or/deepseek-v3-self-rag": {
+    "provider": "openrouter",
+    "model_name": "deepseek/deepseek-chat",
+    "api_key": OPENROUTER_API_KEY,
+    "base_url": "https://openrouter.ai/api/v1",
+    "temperature": 0.0,
+    "max_tokens": 512,
+    "self_rag": True,  # 开启Self-RAG机制
+    "self_rag_threshold": 0.7,  # 校验阈值
+    "self_rag_retrieval": "hybrid"  # 复用混合检索
+    },
 }
 
 # Experiment defaults

@@ -1,0 +1,11 @@
+{
+  "experiment": "E7-Self-RAG",
+  "model": "or/gpt-4o-mini",
+  "sample_size": 500,
+  "seed": 42,
+  "top_k": 5,
+  "rrf_k": 60,
+  "enable_regeneration": true,
+  "retriever": "BM25+Contriever+RRF (fixed)",
+  "description": "Self-RAG inspired variant with critique and regeneration"
+}
