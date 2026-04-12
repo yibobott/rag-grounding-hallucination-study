@@ -1,0 +1,19 @@
+{
+  "mean_citation_grounding_rate": 0.794,
+  "mean_em": 0.34,
+  "mean_factscore": 0.7933333333333333,
+  "mean_faithfulness": 0.829,
+  "mean_has_hallucination": 0.08,
+  "mean_num_citations": 1.308,
+  "mean_num_claims": 1.98,
+  "mean_num_grounded": 1.208,
+  "mean_num_supported_claims": 1.58,
+  "mean_retrieval_precision_at_5": 0.34580000000000005,
+  "mean_semantic_match": 0.6240664644919895,
+  "mean_token_f1": 0.5229701206011947,
+  "n": 500,
+  "experiment": "E8-Retrieval-Enhancement-full",
+  "model": "or/gpt-4o-mini",
+  "hallucination_rate": 0.08,
+  "factscore_n": 50
+}

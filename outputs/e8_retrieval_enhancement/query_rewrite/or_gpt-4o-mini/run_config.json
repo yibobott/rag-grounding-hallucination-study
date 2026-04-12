@@ -1,0 +1,11 @@
+{
+  "experiment": "E8-Retrieval-Enhancement-query_rewrite",
+  "model": "or/gpt-4o-mini",
+  "mode": "query_rewrite",
+  "sample_size": 500,
+  "seed": 42,
+  "top_k": 5,
+  "rrf_k": 60,
+  "rewrite_top_k": 10,
+  "description": "Retrieval enhancement experiment, mode: query_rewrite"
+}

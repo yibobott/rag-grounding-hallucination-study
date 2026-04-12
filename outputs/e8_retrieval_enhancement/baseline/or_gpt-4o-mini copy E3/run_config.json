@@ -1,6 +1,6 @@
 {
   "experiment": "E3-Hybrid",
-  "model": "gpt-4o-mini",
+  "model": "or/gpt-4o-mini",
   "sample_size": 500,
   "seed": 42,
   "top_k": 5,
