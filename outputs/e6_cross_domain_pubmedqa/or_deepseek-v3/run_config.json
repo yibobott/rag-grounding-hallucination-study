@@ -1,11 +1,11 @@
 {
   "experiment": "E6-Cross-Domain-PubMedQA",
   "model": "or/deepseek-v3",
-  "sample_size": 500,
+  "sample_size": 200,
   "seed": 42,
   "top_k": 5,
   "rrf_k": 60,
   "retriever": "BM25+Contriever+RRF",
   "dataset": "PubMedQA labeled",
-  "description": "Cross-domain evaluation: best HotpotQA RAG config on PubMedQA"
+  "description": "Cross-domain evaluation: best HotpotQA RAG config on PubMedQA (Gold + Distractor)"
 }

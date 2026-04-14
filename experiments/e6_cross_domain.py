@@ -31,33 +31,58 @@ from src.evaluation.metrics import aggregate_metrics, parse_structured_output
 logger = logging.getLogger(__name__)
 
 
-def _prepare_pubmedqa_example(example: dict, top_k: int, rrf_k: int = 60) -> dict:
-    """
-    Prepare a single PubMedQA example for RAG:
-    - Convert PubMedQA context into standard doc format
-    - Run hybrid retrieval to get top-k relevant docs
-    """
-    # Convert PubMedQA context into standard doc list (compatible with retrieval)
-    context = example["context"]
-    all_docs = []
-    # PubMedQA context is a list of context passages; format into standard doc structure
-    for idx, ctx_text in enumerate(context, start=1):
-        all_docs.append({
-            "title": f"PubMed Context {idx}",
-            "text": ctx_text,
-            "sentences": ctx_text.split(". "),
+def _prepare_pubmedqa_example(
+    example: dict,
+    top_k: int,
+    all_dataset: list,  # 传入整个数据集，用来随机取干扰文档
+    rrf_k: int = 60,
+    num_distractors: int = 8
+) -> dict:
+    import random
+    random.seed(42)
+
+    # --------------------- 1. 自己的金标文档（Gold） ---------------------
+    context_dict = example["context"]
+    gold_texts = context_dict["contexts"]
+
+    gold_docs = []
+    for i, text in enumerate(gold_texts):
+        gold_docs.append({
+            "title": f"Gold_{example['id']}_{i}",
+            "text": text,
+            "sentences": text.split(". ")
         })
-    
-    # Gold docs for evaluation: full PubMed context (all passages)
-    gold_titles = {d["title"] for d in all_docs}
-    
-    # Run hybrid retrieval (best config from HotpotQA)
+
+    # --------------------- 2. 从其他样本随机拿干扰文档（Distractor） ---------------------
+    distractors = []
+    timeout = 0
+    while len(distractors) < num_distractors and timeout < 50:
+        timeout += 1
+        rand_ex = random.choice(all_dataset)
+        if rand_ex["id"] == example["id"]:
+            continue
+        rand_ctxs = rand_ex["context"]["contexts"]
+        if not rand_ctxs:
+            continue
+        sel_text = random.choice(rand_ctxs)
+        distractors.append({
+            "title": f"Distractor_{rand_ex['id']}",
+            "text": sel_text,
+            "sentences": sel_text.split(". ")
+        })
+
+    # --------------------- 3. 合并 = Gold + Distractor（和 HotpotQA 一样） ---------------------
+    doc_pool = gold_docs + distractors
+
+    # --------------------- 4. 在这个小池子里面检索（超快！） ---------------------
     retrieved_docs = hybrid_retrieve(
         query=example["question"],
-        docs=all_docs,
+        docs=doc_pool,
         top_k=top_k,
-        rrf_k=rrf_k,
+        rrf_k=rrf_k
     )
+
+    gold_titles = {d["title"] for d in gold_docs}
 
     return {
         "system_prompt": RAG_SYSTEM_PROMPT,
@@ -73,14 +98,11 @@ def _prepare_pubmedqa_example(example: dict, top_k: int, rrf_k: int = 60) -> dic
                     "bm25_score": d.get("bm25_score"),
                     "dense_score": d.get("dense_score"),
                     "rrf_score": d["rrf_score"],
-                    "original_index": d["original_index"],
-                }
-                for d in retrieved_docs
+                } for d in retrieved_docs
             ],
             "gold_long_answer": example["long_answer"],
         },
     }
-
 
 def run_e6_cross_domain(
     sample_size: int = 500,
@@ -153,7 +175,7 @@ def run_e6_cross_domain(
         "rrf_k": rrf_k,
         "retriever": "BM25+Contriever+RRF",
         "dataset": "PubMedQA labeled",
-        "description": "Cross-domain evaluation: best HotpotQA RAG config on PubMedQA",
+        "description": "Cross-domain evaluation: best HotpotQA RAG config on PubMedQA (Gold + Distractor)",
     }
     run_config_file.write_text(json.dumps(run_cfg, indent=2, ensure_ascii=False))
 
@@ -167,8 +189,13 @@ def run_e6_cross_domain(
             if example["id"] in done_ids:
                 continue
 
-            # Prepare example for RAG
-            prep = _prepare_pubmedqa_example(example, top_k=top_k, rrf_k=rrf_k)
+            # Prepare example for RAG（传入整个数据集，用来取distractor）
+            prep = _prepare_pubmedqa_example(
+                example, 
+                top_k=top_k, 
+                all_dataset=samples,  # 关键修改：传入整个数据集
+                rrf_k=rrf_k
+            )
 
             # LLM generation
             try:
